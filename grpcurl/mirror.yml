@@ -1,0 +1,260 @@
+# ⚠ `extends:` is a SHALLOW merge of TOP-LEVEL KEYS. Setting a key here
+# REPLACES the base's block outright — there is no per-key merge. `platforms:`
+# below is owned entirely by this spec (the base deliberately has none), so
+# nothing is being dropped by restating it.
+extends: ../mirror-base.yml
+
+name: grpcurl
+
+# Logical index package `fullstorydev/grpcurl` lives at the physical path
+# `ghcr.io/ocx-contrib/fullstorydev/grpcurl` — slash segments, never
+# hyphen-flattened. The first segment must be this repo's own owner or
+# `GITHUB_TOKEN` cannot create the package. Linkage to this repo comes from the
+# `org.opencontainers.image.source` annotation the pipeline writes.
+target:
+  registry: ghcr.io
+  repository: ocx-contrib/fullstorydev/grpcurl
+
+source:
+  type: github_release
+  owner: fullstorydev
+  repo: grpcurl
+  # Upstream tags are plain `vX.Y.Z` with no prerelease grammar in range.
+  # Observed 2026-08-04 across all 27 releases:
+  #
+  #   $ gh api "repos/fullstorydev/grpcurl/releases?per_page=30" \
+  #       --jq '.[] | "\(.tag_name)\t\(.prerelease)"'
+  #   v1.9.3  false      v1.9.2  false      v1.9.1  false     v1.9.0  false
+  #   v1.8.9  false      …       v1.8.4  true       v1.8.3  true      …
+  #
+  # EVERY tag is three-component, which is load-bearing: ocx-mirror's version
+  # parser requires a full X.Y.Z and silently skips anything shorter
+  # (`WARN Skipping version 35.1: version '35.1' needs full X.Y.Z format`,
+  # then `INFO Nothing to mirror`) while `package check --dry-run` still exits
+  # 0 — a mirror that is green in CI forever and publishes nothing. Checked
+  # here rather than assumed. The only prereleases upstream ever cut (v1.8.3 /
+  # v1.8.4) carry GitHub's own `prerelease` flag and sit below the floor
+  # anyway; `skip_prereleases: true` (mirror-base.yml) is the knob that
+  # excludes them, not the pattern.
+  tag_pattern: "^v(?P<version>\\d+\\.\\d+\\.\\d+)$"
+
+# ─── libc gate (Phase 3.5) — the evidence, not the conclusion ───────────────
+#
+# Measured on the real v1.9.3 assets, both Linux arches:
+#
+#   $ file grpcurl        # from grpcurl_1.9.3_linux_x86_64.tar.gz
+#   ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked,
+#   Go BuildID=DLjNKSWuNBSombZp2UF9/…, stripped
+#
+#   $ file grpcurl        # from grpcurl_1.9.3_linux_arm64.tar.gz
+#   ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically
+#   linked, Go BuildID=bYXlCxBrd4tHfohKY6Uy/…, stripped
+#
+#   $ readelf -l grpcurl | grep -c INTERP     → 0   (both arches)
+#
+# STATICALLY linked on both arches — a pure-Go build with no cgo, so it
+# requires no libc at all. `os.features` is a REQUIREMENT the host must
+# satisfy, not a label for how the artifact was built, so the correct key is
+# the BARE `linux/<arch>` with an empty `os.features`. Tagging a static binary
+# `+libc.musl` (or `+libc.glibc`) would be a false requirement that hides it
+# from hosts it runs on perfectly well.
+#
+# The static reading was cross-checked against the UPX trap, which makes a
+# packed glibc-dynamic binary read as "statically linked" because the packer
+# stub leaves no PT_INTERP and no section headers:
+#
+#   $ strings -a grpcurl | grep -c '^UPX'                → 0
+#   $ readelf -h grpcurl | grep 'Start of section headers'
+#     Start of section headers:          400 (bytes into file)
+#
+# Not packed, section headers present — so `file`'s verdict is the real one.
+# Confirmed static on all four in-range versions (1.9.0/1.9.1/1.9.2/1.9.3), not
+# just the newest, since a toolchain change mid-range would not announce itself.
+#
+# The alpine leg under `platforms:` is what makes the bare-key universality
+# claim honest rather than merely asserted — it is the other half of this
+# decision, taken together with it.
+#
+# ─── Asset scope (Phase 2, both directions) ────────────────────────────────
+#
+# Every regex below was checked to match EXACTLY ONE asset at EVERY in-range
+# release — v1.9.0 (the floor), v1.9.1, v1.9.2 and v1.9.3 (newest). 0 matches
+# is a SILENT skip, not an error, so the forward check has to run per version;
+# >1 is a hard ambiguous error. The inverse pass enumerated every remaining
+# asset to confirm each is deliberately out of scope:
+#
+#   grpcurl_<V>_linux_{amd64,386,arm64,armv5,armv6,armv7,ppc64le,s390x}.deb
+#   grpcurl_<V>_linux_{…same…}.rpm          distro packages, not archives
+#   grpcurl_<V>_linux_x86_32.tar.gz         32-bit x86; no OCX platform key
+#   grpcurl_<V>_linux_armv{5,6,7}.tar.gz    32-bit ARM; no OCX platform key
+#   grpcurl_<V>_linux_{ppc64le,s390x}.tar.gz  no OCX platform key, no GHA runner
+#   grpcurl_<V>_windows_x86_32.zip          32-bit x86; no OCX platform key
+#   grpcurl_<V>_checksums.txt               digest sidecar — `verify
+#                                           .github_asset_digest` reads
+#                                           GitHub's own asset digest instead
+#
+# ocx's `Architecture` enum is amd64 + arm64 ONLY, so 386 / armv5 / armv6 /
+# armv7 / ppc64le / s390x are upstream assets that no platform key can express
+# — excluded structurally, not by policy.
+#
+# ARCH-TOKEN TRAP, and why every pattern is fully anchored rather than built
+# from an arch-name mapping table: for x86 SPECIFICALLY the archive and the
+# distro packages disagree about the token for the IDENTICAL architecture —
+# `grpcurl_1.9.3_linux_x86_64.tar.gz` beside `grpcurl_1.9.3_linux_amd64.deb`,
+# and `…_linux_x86_32.tar.gz` beside `…_linux_386.deb`. Every other arch
+# (arm64, armv5/6/7, ppc64le, s390x) uses ONE token across all three formats.
+# The `\.tar\.gz$` / `\.zip$` anchors keep the deb/rpm siblings out regardless.
+#
+# macOS uses the token `osx`, not `darwin` — verified against the live asset
+# list, not inferred from the platform key.
+#
+# NO windows/arm64 asset exists on any release in range (nor on any of the 27
+# releases upstream has ever cut) — checked, not assumed. Deliberately absent
+# below rather than declared-and-unmatched: a declared platform with no
+# matching asset self-skips per version, booting a real runner and reporting
+# SUCCESS having tested nothing.
+assets:
+  linux/amd64:
+    - "^grpcurl_\\d+\\.\\d+\\.\\d+_linux_x86_64\\.tar\\.gz$"
+  linux/arm64:
+    - "^grpcurl_\\d+\\.\\d+\\.\\d+_linux_arm64\\.tar\\.gz$"
+  # Pass 2 (darwin) — uncomment together with the `platforms:` entries below.
+  # darwin/amd64:
+  #   - "^grpcurl_\\d+\\.\\d+\\.\\d+_osx_x86_64\\.tar\\.gz$"
+  # darwin/arm64:
+  #   - "^grpcurl_\\d+\\.\\d+\\.\\d+_osx_arm64\\.tar\\.gz$"
+  # Pass 3 (windows) — amd64 only; upstream ships no windows/arm64.
+  # windows/amd64:
+  #   - "^grpcurl_\\d+\\.\\d+\\.\\d+_windows_x86_64\\.zip$"
+
+asset_type:
+  # EVERY archive is FLAT — the binary and LICENSE sit at depth 1 with no
+  # wrapper directory and no `bin/`, uniformly across all five platforms and
+  # both ends of the range, so one global rule rather than per-platform
+  # overrides:
+  #
+  #   $ tar tvf grpcurl_1.9.3_linux_x86_64.tar.gz
+  #   -rw-r--r--  1081      LICENSE
+  #   -rwxr-xr-x  24567808  grpcurl
+  #
+  #   $ unzip -l grpcurl_1.9.3_windows_x86_64.zip
+  #   1081      LICENSE
+  #   25296896  grpcurl.exe
+  #
+  # `strip_components: 0` is therefore FORCED, and the margin for error is
+  # nil in the other direction: with every entry at depth 1 there is no top
+  # directory to hoist, so `strip_components: 1` yields a bundle with ZERO
+  # entries while `prepare` still exits 0 — a fully green run publishing an
+  # empty artifact. Measured on this shape, not reasoned about.
+  type: archive
+  strip_components: 0
+
+# `off` — FORCED by the layout above, not chosen. With `strip_components: 0`
+# on a FLAT archive the binary lands directly at the bundle content root, so
+# PATH is a bare `${installPath}` (metadata.json) and the scan has no target
+# directory to read. A load-time gate rejects a bare `${installPath}` at exit
+# 65 whenever the effective mode scans, so `auto`/`verify` are unavailable
+# here without inventing a subdirectory that upstream does not ship. The
+# `binaries` claim below is therefore a hand-list taken from the real archive
+# listings above (both ends of the range, all five platforms: exactly one
+# executable, `grpcurl`, plus a non-executable LICENSE the scan would skip
+# anyway). Same shape as the shipped mirror-actionlint.
+bin_scan: off
+
+metadata:
+  # Paths resolve against THIS spec's directory, not the repo root.
+  # ONE file covers every platform: the layout is identical everywhere (flat
+  # root), and the binary set is not platform-asymmetric — windows ships the
+  # same single executable, just as `grpcurl.exe`. `binaries` is declared bare
+  # and without the extension, which is the wire format on every platform.
+  default: metadata.json
+
+catalog:
+  # Resolves against this spec's own directory, so the repo-root logo shared by
+  # every future fullstorydev spec has to be named explicitly. CATALOG.md is
+  # found by the default probe beside this file.
+  logo: ../logo.svg
+
+versions:
+  # 1.9.0 is LOAD-BEARING, not a "last few releases" heuristic. v1.8.0 and
+  # v1.7.0 ship only six assets each — linux/osx/windows × x86_32 + x86_64 —
+  # with NO arm64 at all and no deb/rpm. Declaring `linux/arm64` with a lower
+  # floor would 0-match on every one of those releases, and a 0-match is a
+  # SILENT skip: the backfill would go green having published an amd64-only
+  # matrix. 1.9.0 is the verified floor at which all five declared platforms
+  # resolve; the exact patch between 1.8.0 and 1.9.0 where arm64 arrived was
+  # not bisected because nothing below 1.9.0 needs to ship.
+  #
+  # Range is small on purpose — upstream's last tag is v1.9.3 (2025-03-11) and
+  # the cadence has stalled, so four versions is the whole in-range set.
+  min: "1.9.0"
+  new_per_run: 5
+  # Staggered off the hour against the rest of the fleet so the mirrors don't
+  # hit the GitHub releases API in the same minute. WITHOUT this key the
+  # generated workflow carries no `schedule:` trigger at all and the mirror
+  # never auto-discovers a release.
+  poll_interval: "5 */6 * * *"
+
+tests:
+  # `script:` paths resolve from the REPOSITORY ROOT, not from this spec's
+  # directory — the opposite of `metadata.default` and `catalog.*` above.
+  - name: smoke
+    script: grpcurl/tests/smoke.star
+
+platforms:
+  # Container legs, not native ones: each image runs the same bundle under its
+  # own loader, and `(version, platform)` is green only when every leg is,
+  # which is what gates the push.
+  #
+  # ubuntu + alpine + fedora on both arches — the deliberate other half of the
+  # bare-key decision recorded above `assets:`. The ALPINE leg is the whole
+  # point: an unqualified linux key publishes an empty `os.features`, which is
+  # a positive claim that the artifact loads under ANY Linux userland, and
+  # alpine is the only image here that can falsify it. Drop that leg and the
+  # claim goes back to being merely asserted.
+  #
+  # No `containers[].setup` on any leg, and that is a measurement rather than
+  # an omission: the smoke's verbs (`-proto … list` / `describe`) parse a local
+  # file with grpcurl's own in-process protobuf compiler and shell out to
+  # nothing — no git, no protoc, no network. A bare stock image is exactly the
+  # claim worth making here.
+  linux/amd64:
+    runner: ubuntu-latest
+    containers:
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "alpine:3.20",  shell: sh }
+      - { image: "fedora:40",    shell: bash }
+  linux/arm64:
+    # arm64 container legs run natively — no qemu — so the runner arch must
+    # match the platform or the renderer's guard reds the leg up front.
+    runner: ubuntu-24.04-arm
+    containers:
+      - { image: "ubuntu:24.04", shell: bash }
+      - { image: "alpine:3.20",  shell: sh }
+      - { image: "fedora:40",    shell: bash }
+  # Pass 2 (darwin) — uncomment together with the `assets:` entries above.
+  # darwin/amd64:
+  #   # Intel slice tested on the arm64 macos-14 runner via Rosetta 2. Never
+  #   # native `macos-13`: GitHub's Intel pool is exhausted, a queued leg never
+  #   # schedules, and `push` (needs: test) then deadlocks the whole mirror.
+  #   runner: macos-14
+  # darwin/arm64:
+  #   runner: macos-14
+  # Pass 3 (windows) — amd64 only. No `windows/arm64` entry because upstream
+  # ships no arm64 Windows asset; the amd64 pool cannot execute an ARM64 PE and
+  # there is no Rosetta equivalent to lean on.
+  # windows/amd64:
+  #   runner: windows-latest
+  #   shell: pwsh
+
+annotations:
+  # From the Phase 1.5 license gate:
+  #   $ gh api repos/fullstorydev/grpcurl/license --jq '.license.spdx_id'
+  #   MIT
+  org.opencontainers.image.licenses: "MIT"
+
+announce:
+  # Spelled out, not derived from target.repository — the logical name and the
+  # physical path are related by convention only.
+  package: fullstorydev/grpcurl
+  fork: ocx-contrib/index
