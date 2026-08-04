@@ -122,9 +122,9 @@ assets:
     - "^grpcurl_\\d+\\.\\d+\\.\\d+_osx_x86_64\\.tar\\.gz$"
   darwin/arm64:
     - "^grpcurl_\\d+\\.\\d+\\.\\d+_osx_arm64\\.tar\\.gz$"
-  # Pass 3 (windows) — amd64 only; upstream ships no windows/arm64.
-  # windows/amd64:
-  #   - "^grpcurl_\\d+\\.\\d+\\.\\d+_windows_x86_64\\.zip$"
+  # amd64 only — upstream ships no windows/arm64 asset on any release.
+  windows/amd64:
+    - "^grpcurl_\\d+\\.\\d+\\.\\d+_windows_x86_64\\.zip$"
 
 asset_type:
   # EVERY archive is FLAT — the binary and LICENSE sit at depth 1 with no
@@ -240,12 +240,22 @@ platforms:
     runner: macos-14
   darwin/arm64:
     runner: macos-14
-  # Pass 3 (windows) — amd64 only. No `windows/arm64` entry because upstream
-  # ships no arm64 Windows asset; the amd64 pool cannot execute an ARM64 PE and
-  # there is no Rosetta equivalent to lean on.
-  # windows/amd64:
-  #   runner: windows-latest
-  #   shell: pwsh
+  # No `windows/arm64` entry: upstream ships no arm64 Windows asset on ANY of
+  # its 27 releases — checked, not assumed. Declaring it anyway would boot a
+  # real `windows-11-arm` runner that self-skips every version and reports
+  # SUCCESS having tested nothing.
+  #
+  # The zip is FLAT like the unix tarballs, so `strip_components: 0` carries
+  # over and the upstream `.exe` suffix is PRESERVED by the extractor — no
+  # per-platform `name:` override is needed. Proven before spending a runner
+  # minute, with a throwaway windows-only probe spec at both ends of the range:
+  #
+  #   $ tar tvf <probe>/1.9.0_.../windows_amd64/bundle.tar.xz
+  #   -rw-r--r--  1081      LICENSE
+  #   -rwxr-xr-x  25112064  grpcurl.exe
+  windows/amd64:
+    runner: windows-latest
+    shell: pwsh
 
 annotations:
   # From the Phase 1.5 license gate:
