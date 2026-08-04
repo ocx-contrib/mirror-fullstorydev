@@ -118,11 +118,10 @@ assets:
     - "^grpcurl_\\d+\\.\\d+\\.\\d+_linux_x86_64\\.tar\\.gz$"
   linux/arm64:
     - "^grpcurl_\\d+\\.\\d+\\.\\d+_linux_arm64\\.tar\\.gz$"
-  # Pass 2 (darwin) — uncomment together with the `platforms:` entries below.
-  # darwin/amd64:
-  #   - "^grpcurl_\\d+\\.\\d+\\.\\d+_osx_x86_64\\.tar\\.gz$"
-  # darwin/arm64:
-  #   - "^grpcurl_\\d+\\.\\d+\\.\\d+_osx_arm64\\.tar\\.gz$"
+  darwin/amd64:
+    - "^grpcurl_\\d+\\.\\d+\\.\\d+_osx_x86_64\\.tar\\.gz$"
+  darwin/arm64:
+    - "^grpcurl_\\d+\\.\\d+\\.\\d+_osx_arm64\\.tar\\.gz$"
   # Pass 3 (windows) — amd64 only; upstream ships no windows/arm64.
   # windows/amd64:
   #   - "^grpcurl_\\d+\\.\\d+\\.\\d+_windows_x86_64\\.zip$"
@@ -232,14 +231,15 @@ platforms:
       - { image: "ubuntu:24.04", shell: bash }
       - { image: "alpine:3.20",  shell: sh }
       - { image: "fedora:40",    shell: bash }
-  # Pass 2 (darwin) — uncomment together with the `assets:` entries above.
-  # darwin/amd64:
-  #   # Intel slice tested on the arm64 macos-14 runner via Rosetta 2. Never
-  #   # native `macos-13`: GitHub's Intel pool is exhausted, a queued leg never
-  #   # schedules, and `push` (needs: test) then deadlocks the whole mirror.
-  #   runner: macos-14
-  # darwin/arm64:
-  #   runner: macos-14
+  darwin/amd64:
+    # Intel slice tested on the arm64 macos-14 runner via Rosetta 2. Never
+    # native `macos-13`: GitHub's Intel pool is exhausted, a queued leg never
+    # schedules, and `push` (needs: test) then deadlocks the whole mirror.
+    # The x86_64 asset is a genuine native Mach-O (`file` → "Mach-O 64-bit
+    # x86_64 executable"), not a fat binary, so Rosetta translates it.
+    runner: macos-14
+  darwin/arm64:
+    runner: macos-14
   # Pass 3 (windows) — amd64 only. No `windows/arm64` entry because upstream
   # ships no arm64 Windows asset; the amd64 pool cannot execute an ARM64 PE and
   # there is no Rosetta equivalent to lean on.
