@@ -232,14 +232,14 @@ platforms:
       - { image: "alpine:3.20",  shell: sh }
       - { image: "fedora:40",    shell: bash }
   darwin/amd64:
-    # Intel slice tested on the arm64 macos-14 runner via Rosetta 2. Never
+    # Intel slice tested on the arm64 macos-15 runner via Rosetta 2. Never
     # native `macos-13`: GitHub's Intel pool is exhausted, a queued leg never
     # schedules, and `push` (needs: test) then deadlocks the whole mirror.
     # The x86_64 asset is a genuine native Mach-O (`file` → "Mach-O 64-bit
     # x86_64 executable"), not a fat binary, so Rosetta translates it.
-    runner: macos-14
+    runner: macos-15
   darwin/arm64:
-    runner: macos-14
+    runner: macos-15
   # No `windows/arm64` entry: upstream ships no arm64 Windows asset on ANY of
   # its 27 releases — checked, not assumed. Declaring it anyway would boot a
   # real `windows-11-arm` runner that self-skips every version and reports
